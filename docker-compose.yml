@@ -1,0 +1,327 @@
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Zurich
+    volumes:
+      - ${HOMELAB_ROOT}/qbittorrent/config:/config
+      - ${HOMELAB_ROOT}/media:/media
+    ports:
+      - "10009:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Zurich
+    volumes:
+      - ${HOMELAB_ROOT}/prowlarr/config:/config
+    ports:
+      - "10008:9696"
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Zurich
+    volumes:
+      - ${HOMELAB_ROOT}/radarr/config:/config
+      - ${HOMELAB_ROOT}/media:/media
+    ports:
+      - "10007:7878"
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Zurich
+    volumes:
+      - ${HOMELAB_ROOT}/sonarr/config:/config
+      - ${HOMELAB_ROOT}/media:/media
+    ports:
+      - "10006:8989"
+    restart: unless-stopped
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:15
+    container_name: forgejo
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    volumes:
+      - ${HOMELAB_ROOT}/forgejo:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "10005:3000"
+      - "2222:22"
+
+  jellyfin:
+    image: jellyfin/jellyfin
+    ports: ["10002:8096"]
+    volumes:
+      - ${HOMELAB_ROOT}/jellyfin/config:/config
+      - ${HOMELAB_ROOT}/media:/media
+    restart: unless-stopped
+
+  opencloud:
+    image: opencloudeu/opencloud-rolling:latest
+    entrypoint: /bin/sh
+    command: ["-c", "opencloud init || true; opencloud server"]
+    network_mode: host
+    environment:
+      - OC_URL=https://laptop.tail17622c.ts.net:8446
+      - OC_INSECURE=false
+      - PROXY_TLS=false
+      - PROXY_HTTP_ADDR=0.0.0.0:10004
+      - PROXY_OIDC_ISSUER=https://laptop.tail17622c.ts.net:8446
+      - PROXY_CONFIG_FILE=/etc/opencloud/proxy.yaml
+      - OC_OIDC_ISSUER=https://laptop.tail17622c.ts.net:8446
+      - IDM_CREATE_DEMO_USERS=false
+    volumes:
+      - ${HOMELAB_ROOT}/opencloud/config:/etc/opencloud
+      - ${HOMELAB_ROOT}/opencloud/data:/var/lib/opencloud
+    restart: unless-stopped
+
+  radicale:
+    image: opencloudeu/radicale:latest
+    network_mode: host
+    user: "1000:1000"
+    volumes:
+      - ${HOMELAB_ROOT}/radicale/config/config:/etc/radicale/config
+      - ${HOMELAB_ROOT}/radicale/data:/var/lib/radicale
+    restart: unless-stopped
+
+  immich:
+    image: ghcr.io/immich-app/immich-server:release
+    ports: ["10003:2283"]
+    environment:
+      - DB_HOSTNAME=immich-db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DATABASE_NAME=${DB_DATABASE_NAME}
+      - REDIS_HOSTNAME=immich-redis
+    volumes:
+      - ${HOMELAB_ROOT}/immich/upload:/usr/src/app/upload
+    depends_on:
+      - immich-db
+      - immich-redis
+    restart: unless-stopped
+
+  immich-db:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - ${HOMELAB_ROOT}/immich/db:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  immich-redis:
+    image: docker.io/valkey/valkey:9
+    restart: unless-stopped
+
+  affine:
+    image: ghcr.io/toeverything/affine:${AFFINE_REVISION:-stable}
+    container_name: affine_server
+    ports: ["10001:3010"]
+    depends_on:
+      affine-redis:
+        condition: service_healthy
+      affine-db:
+        condition: service_healthy
+      affine-migration:
+        condition: service_completed_successfully
+    volumes:
+      - ${HOMELAB_ROOT}/affine/storage:/root/.affine/storage
+      - ${HOMELAB_ROOT}/affine/config:/root/.affine/config
+    environment:
+      - REDIS_SERVER_HOST=affine-redis
+      - DATABASE_URL=postgresql://${AFFINE_DB_USERNAME}:${AFFINE_DB_PASSWORD}@affine-db:5432/${AFFINE_DB_DATABASE:-affine}
+      - AFFINE_INDEXER_ENABLED=false
+    restart: unless-stopped
+
+  affine-migration:
+    image: ghcr.io/toeverything/affine:${AFFINE_REVISION:-stable}
+    container_name: affine_migration_job
+    volumes:
+      - ${HOMELAB_ROOT}/affine/storage:/root/.affine/storage
+      - ${HOMELAB_ROOT}/affine/config:/root/.affine/config
+    command: ['sh', '-c', 'node ./scripts/self-host-predeploy.js']
+    environment:
+      - REDIS_SERVER_HOST=affine-redis
+      - DATABASE_URL=postgresql://${AFFINE_DB_USERNAME}:${AFFINE_DB_PASSWORD}@affine-db:5432/${AFFINE_DB_DATABASE:-affine}
+      - AFFINE_INDEXER_ENABLED=false
+    depends_on:
+      affine-db:
+        condition: service_healthy
+      affine-redis:
+        condition: service_healthy
+
+  affine-redis:
+    image: redis
+    container_name: affine_redis
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  affine-db:
+    image: pgvector/pgvector:pg16
+    container_name: affine_postgres
+    volumes:
+      - ${HOMELAB_ROOT}/affine/db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${AFFINE_DB_USERNAME}
+      POSTGRES_PASSWORD: ${AFFINE_DB_PASSWORD}
+      POSTGRES_DB: ${AFFINE_DB_DATABASE:-affine}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', '${AFFINE_DB_USERNAME}', '-d', '${AFFINE_DB_DATABASE:-affine}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  miniflux-db:
+    image: postgres:15-alpine
+    container_name: miniflux-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${MINIFLUX_DB_USER}
+      POSTGRES_PASSWORD: ${MINIFLUX_DB_PASS}
+      POSTGRES_DB: ${MINIFLUX_DB_NAME}
+    volumes:
+      - ${HOMELAB_ROOT}/miniflux/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  miniflux:
+    image: docker.io/miniflux/miniflux:latest
+    container_name: miniflux
+    restart: unless-stopped
+    depends_on:
+      miniflux-db:
+        condition: service_healthy
+    ports:
+      - "10010:8080"
+    environment:
+      DATABASE_URL: postgres://${MINIFLUX_DB_USER}:${MINIFLUX_DB_PASS}@miniflux-db:5432/${MINIFLUX_DB_NAME}?sslmode=disable
+      RUN_MIGRATIONS: 1
+
+  nextflux:
+    image: electh/nextflux:latest
+    container_name: nextflux
+    restart: unless-stopped
+    ports:
+      - "10011:3000"
+
+  unmanic:
+    container_name: unmanic
+    image: josh5/unmanic:latest
+    restart: unless-stopped
+    ports:
+      - "10012:8888"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Zurich
+    volumes:
+      - ${HOMELAB_ROOT}/unmanic/config:/config
+      - ${HOMELAB_ROOT}/media/anime:/library/anime
+      - ${HOMELAB_ROOT}/media/movies:/library/movies
+      - ${HOMELAB_ROOT}/media/tv:/library/tv
+      - ${HOMELAB_ROOT}/media/anime_movies:/library/anime_movies
+      - /tmp/unmanic-cache:/tmp/unmanic
+    devices:
+      - /dev/dri:/dev/dri
+
+  stirling-pdf:
+    image: stirlingtools/stirling-pdf:latest
+    container_name: stirling-pdf
+    restart: unless-stopped
+    ports:
+      - "10013:8080"
+    environment:
+      - DISABLE_ADDITIONAL_FEATURES=false
+      - LANGS=en_US
+      - SECURITY_ENABLELOGIN=true
+      - SECURITY_INITIALLOGIN_USERNAME=${STIRLING_ADMIN}
+      - SECURITY_INITIALLOGIN_PASSWORD=${STIRLING_PASS}
+    volumes:
+      - ${HOMELAB_ROOT}/stirling/trainingData:/usr/share/tessdata
+      - ${HOMELAB_ROOT}/stirling/extraConfigs:/configs
+      - ${HOMELAB_ROOT}/stirling/customFiles:/customFiles
+      - ${HOMELAB_ROOT}/stirling/logs:/logs
+
+  paperless-broker:
+    image: docker.io/library/redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ${HOMELAB_ROOT}/paperless/redis:/data
+
+  paperless-db:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PAPERLESS_POSTGRES_DB}
+      POSTGRES_USER: ${PAPERLESS_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${PAPERLESS_POSTGRES_PASSWORD}
+    volumes:
+      - ${HOMELAB_ROOT}/paperless/postgres:/var/lib/postgresql/data
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    ports:
+      - "10014:8000"
+    depends_on:
+      - paperless-db
+      - paperless-broker
+    environment:
+      PAPERLESS_REDIS: redis://paperless-broker:6379
+      PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBHOST: paperless-db
+      PAPERLESS_DBPORT: 5432
+      PAPERLESS_DBNAME: ${PAPERLESS_POSTGRES_DB}
+      PAPERLESS_DBUSER: ${PAPERLESS_POSTGRES_USER}
+      PAPERLESS_DBPASS: ${PAPERLESS_POSTGRES_PASSWORD}
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
+      PAPERLESS_TIME_ZONE: ${PAPERLESS_TIME_ZONE}
+      PAPERLESS_OCR_LANGUAGE: ${PAPERLESS_OCR_LANGUAGE}
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
+      PAPERLESS_ADMIN_MAIL: ${PAPERLESS_ADMIN_MAIL}
+      PAPERLESS_USE_X_FORWARDED_HOST: "true"
+      PAPERLESS_USE_X_FORWARDED_PORT: "true"
+      PAPERLESS_ALLOWED_HOSTS: "laptop.tail17622c.ts.net,localhost,127.0.0.1"
+      PAPERLESS_CSRF_TRUSTED_ORIGINS: "http://laptop.tail17622c.ts.net:8456,https://laptop.tail17622c.ts.net:8456"
+      PAPERLESS_CORS_ALLOWED_ORIGINS: "http://laptop.tail17622c.ts.net:8456,https://laptop.tail17622c.ts.net:8456"
+    volumes:
+      - ${HOMELAB_ROOT}/paperless/data:/usr/src/paperless/data
+      - ${HOMELAB_ROOT}/paperless/media:/usr/src/paperless/media
+      - ${HOMELAB_ROOT}/paperless/export:/usr/src/paperless/export
+      - ${HOMELAB_ROOT}/paperless/consume:/usr/src/paperless/consume
+  
