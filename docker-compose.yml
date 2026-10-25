@@ -238,23 +238,34 @@ services:
     ports:
       - "10011:3000"
 
-  unmanic:
-    container_name: unmanic
-    image: josh5/unmanic:latest
+  tdarr:
+    image: ghcr.io/haveagitgat/tdarr:latest
+    container_name: tdarr
     restart: unless-stopped
     ports:
-      - "10012:8888"
+      - "10012:8265"
+    # - 8266:8266
     environment:
+      - TZ=Europe/Zurich
       - PUID=1000
       - PGID=1000
-      - TZ=Europe/Zurich
+      - UMASK_SET=002
+      - serverIP=0.0.0.0
+      - serverPort=8266
+      - webUIPort=8265
+      - internalNode=true
+      - inContainer=true
+      - ffmpegVersion=7
+      - nodeName=InternalNode
     volumes:
-      - ${HOMELAB_ROOT}/unmanic/config:/config
-      - ${HOMELAB_ROOT}/media/anime:/library/anime
-      - ${HOMELAB_ROOT}/media/movies:/library/movies
-      - ${HOMELAB_ROOT}/media/tv:/library/tv
-      - ${HOMELAB_ROOT}/media/anime_movies:/library/anime_movies
-      - /tmp/unmanic-cache:/tmp/unmanic
+      - ${HOMELAB_ROOT}/tdarr/server:/app/server
+      - ${HOMELAB_ROOT}/tdarr/configs:/app/configs
+      - ${HOMELAB_ROOT}/tdarr/logs:/app/logs
+      - ${HOMELAB_ROOT}/media/anime:/media/anime
+      - ${HOMELAB_ROOT}/media/movies:/media/movies
+      - ${HOMELAB_ROOT}/media/tv:/media/tv
+      - ${HOMELAB_ROOT}/media/anime_movies:/media/anime_movies
+      - /tmp/tdarr:/temp
     devices:
       - /dev/dri:/dev/dri
 
