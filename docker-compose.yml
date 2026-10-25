@@ -116,6 +116,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_DATABASE_NAME=${DB_DATABASE_NAME}
       - REDIS_HOSTNAME=immich-redis
+      - MACHINE_LEARNING_URL=http://immich-ml:3003
     volumes:
       - ${HOMELAB_ROOT}/immich/upload:/usr/src/app/upload
     depends_on:
@@ -130,13 +131,27 @@ services:
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_DB: ${DB_DATABASE_NAME}
       POSTGRES_INITDB_ARGS: '--data-checksums'
+      DB_STORAGE_TYPE: 'HDD'
     volumes:
       - ${HOMELAB_ROOT}/immich/db:/var/lib/postgresql/data
+    shm_size: 128mb
     restart: unless-stopped
+    healthcheck:
+      disable: false
 
   immich-redis:
     image: docker.io/valkey/valkey:9
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
     restart: unless-stopped
+
+  immich-ml:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    volumes:
+      - /tmp/immich_model:/cache
+    restart: unless-stopped
+    healthcheck:
+      disable: false
 
   affine:
     image: ghcr.io/toeverything/affine:${AFFINE_REVISION:-stable}
