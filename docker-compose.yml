@@ -148,7 +148,7 @@ services:
   immich-ml:
     image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
     volumes:
-      - /tmp/immich_model:/cache
+      - ${HOMELAB_ROOT}/immich/model:/cache
     restart: unless-stopped
     healthcheck:
       disable: false
@@ -335,8 +335,8 @@ services:
       PAPERLESS_DBUSER: ${PAPERLESS_POSTGRES_USER}
       PAPERLESS_DBPASS: ${PAPERLESS_POSTGRES_PASSWORD}
       PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
-      PAPERLESS_TIME_ZONE: ${PAPERLESS_TIME_ZONE}
-      PAPERLESS_OCR_LANGUAGE: ${PAPERLESS_OCR_LANGUAGE}
+      PAPERLESS_TIME_ZONE: "Europe/Zurich"
+      PAPERLESS_OCR_LANGUAGE: "eng+fra"
       PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_ADMIN_MAIL: ${PAPERLESS_ADMIN_MAIL}
@@ -350,4 +350,52 @@ services:
       - ${HOMELAB_ROOT}/paperless/media:/usr/src/paperless/media
       - ${HOMELAB_ROOT}/paperless/export:/usr/src/paperless/export
       - ${HOMELAB_ROOT}/paperless/consume:/usr/src/paperless/consume
-  
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    environment:
+      - DOMAIN=https://laptop.tail17622c.ts.net:8457
+      - SIGNUPS_ALLOWED=false
+      - ADMIN_TOKEN=${VW_ADMIN_TOKEN}
+    volumes:
+      - ${HOMELAB_ROOT}/vaultwarden:/data
+    ports:
+      - "10015:80"
+
+  homelab-backup:
+    build: ./backup
+    container_name: homelab-backup
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Zurich
+      - HOMELAB_ROOT=${HOMELAB_ROOT}
+      - BACKUP_SCHEDULE=0 3 * * *          # daily at 03:00 (Europe/Zurich)
+      - BACKUP_ON_START=false              # set true to run once when the container starts
+
+      - BACKUP_EXTRA_PATHS=${STACK_DIR}/docker-compose.yml ${STACK_DIR}/.env ${STACK_DIR}/backup
+      - PAUSE_SERVICES=prowlarr radarr sonarr qbittorrent forgejo opencloud radicale paperless jellyfin vaultwarden
+
+      - RESTIC_PASSWORD=${BACKUP_RESTIC_PASSWORD}
+      - RESTIC_CACHE_DIR=/cache
+      - LOCAL_REPOSITORY=/backup-repo                      # plain folder on the SSD (see volumes below)
+      - OFFSITE_REPOSITORY=${BACKUP_OFFSITE_REPOSITORY:-}  # e.g. b2:your-bucket:homelab  (leave empty to disable)
+      - B2_ACCOUNT_ID=${BACKUP_B2_KEY_ID:-}
+      - B2_ACCOUNT_KEY=${BACKUP_B2_APP_KEY:-}
+
+      - DB_USERNAME=${DB_USERNAME}
+      - AFFINE_DB_USERNAME=${AFFINE_DB_USERNAME}
+      - MINIFLUX_DB_USER=${MINIFLUX_DB_USER}
+      - PAPERLESS_POSTGRES_USER=${PAPERLESS_POSTGRES_USER}
+
+      - KEEP_DAILY=7
+      - KEEP_WEEKLY=4
+      - KEEP_MONTHLY=12
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOMELAB_ROOT}:${HOMELAB_ROOT}:ro
+
+      - ${STACK_DIR}:${STACK_DIR}:ro
+      - ${BACKUP_PATH}/backup:/backup-repo                    # e.g. /mnt/ssd/restic (must NOT be inside HOMELAB_ROOT)
+      - ${BACKUP_PATH}/cache:/cache
